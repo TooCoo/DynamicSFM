@@ -20,7 +20,6 @@
 
 using namespace cv; // Might remove this later		**		**
 
-
 int main() {
 
 	//outline of what needs to be done:
@@ -62,9 +61,9 @@ int main() {
 
 	//std::string imageName1("myC1s.jpg");
 	//std::string imageName2("myC2s.jpg");
-
-	std::string imageName1("blend_1.png");
-	std::string imageName2("blend_2.png");
+		
+	std::string imageName2("blend_1.png");
+	std::string imageName1("blend_2.png");
 
 
 	//Load the images
@@ -186,8 +185,8 @@ int main() {
 	int nGoodMatches = (int)good_matches.size();
 
 	for (int i = 0; i < nGoodMatches; i++)
-	{
-		printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx);
+	{		
+		printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].trainIdx, good_matches[i].queryIdx);
 	}
 
 
@@ -198,8 +197,9 @@ int main() {
 
 	std::vector<Mat> Flist;
 	int nF = 100;
-
-	for (int i = 0; i < nF; i++) {
+	int countFails = 0;
+	//for (int iF = 0; iF < nF; iF++) {
+	for (int iF = 0; iF < nF;) {
 
 		int nPointsToUse = 10;	//arbitrarily chosen // should probs use less
 
@@ -212,6 +212,10 @@ int main() {
 
 		//InputArray p1IA;
 
+		//I could try and use the n closet points to formulate F
+
+		///*
+
 		for (int j = 0; j < nPointsToUse; j++) {
 
 			theseMatches = good_matches[(int)(rand() % nGoodMatches)];
@@ -222,217 +226,258 @@ int main() {
 			p1[j] = keypoints_1[p1Ind].pt;
 			p2[j] = keypoints_2[p2Ind].pt;
 
-			//p1.push_back(keypoints_1[j].pt);
-			//p2.push_back(keypoints_2[j].pt);
-
-			//add new F
-
-
 
 		}
+		//*/
 
-
-		//Mat F = findFundamentalMat(p1, p2, 3.0, 0.99, CV_FM_8POINT); // CV_FM_8POINT  CV_FM_7POINT  CV_FM_RANSAC
-		Mat F = Mat(3, 3, CV_64F);
-		F = findFundamentalMat(p1, p2, CV_FM_RANSAC, 3, 0.99);
-		Flist.push_back(F);
-
-		//can I draw the epipolar lines for each F
-
-		//or check F is correct using x2' F x1 = 0
-
-	}
-
-	
-	#pragma endregion Now that I have my feature matches - I need to estimate my fundamental matrices
-
-
-	#pragma region Model_fitting
-		int nNeighbours = 10;
-
-		Eigen::MatrixXd uniaryWeights = Eigen::MatrixXd::Zero(nF, nGoodMatches);
-
-		Eigen::MatrixXd neighbours = Eigen::MatrixXd::Zero(nNeighbours, nGoodMatches);
-		Eigen::MatrixXd neighbourCost = Eigen::MatrixXd::Zero(nNeighbours, nGoodMatches);
-
-		Eigen::MatrixXd pointsGoodMatches1 = Eigen::MatrixXd::Zero(2, nGoodMatches);
-
-		Eigen::MatrixXd pointsMat1 = Eigen::MatrixXd::Zero(3, 1);
-		Eigen::MatrixXd pointsMat2trans = Eigen::MatrixXd::Zero(1, 3);
-		Eigen::MatrixXd Fmat = Eigen::MatrixXd::Zero(3, 3);
-
-
-
-
-		
-
-		
-
-		RNG rng(111);
-
-		for (int iF = 0; iF < nF; iF++) {
-
-			DMatch theseMatches;
-
-			//fill this 
-			for (int di = 0; di < 3; di++) {
-				Fmat(di, 0) = Flist[iF].at<double>(di, 0);
-				Fmat(di, 1) = Flist[iF].at<double>(di, 1);
-				Fmat(di, 2) = Flist[iF].at<double>(di, 2);
-
-				//Fmat(0, di) = Flist[iF].at<double>(di, 0);
-				//Fmat(1, di) = Flist[iF].at<double>(di, 1);
-				//Fmat(2, di) = Flist[iF].at<double>(di, 2);
-			}
-
-
-			//change from points to use to all matches when calculating the uniary terms
-			//for (pi = 0; pi < nPointsToUse; pi++) {
-			for (int pi = 0; pi < nGoodMatches; pi++) {
-
-				theseMatches = good_matches[pi];
-
-				int p1Ind = theseMatches.queryIdx;
-				int p2Ind = theseMatches.trainIdx;
-
-				pointsMat1(0, 0) = keypoints_1[p1Ind].pt.x;
-				pointsMat1(1, 0) = keypoints_1[p1Ind].pt.y;
-				pointsMat1(2, 0) = 1.0;
-
-				pointsMat2trans(0, 0) = keypoints_2[p2Ind].pt.x;
-				pointsMat2trans(0, 1) = keypoints_2[p2Ind].pt.y;
-				pointsMat2trans(0, 2) = 1.0;
-
-				Eigen::MatrixXd e1 = pointsMat2trans * Fmat;
-				Eigen::MatrixXd e2 = pointsMat1.transpose() * Fmat.transpose();
-
-				Eigen::MatrixXd result = pointsMat2trans * Fmat * pointsMat1;
-
-				float A = e1(0, 0);
-				float B = e1(0, 1);
-				float C = e1(0, 2);
-
-				float x1 = keypoints_1[p1Ind].pt.x;
-				float y1 = keypoints_1[p1Ind].pt.y;
-
-				float d = A*x1 + B * y1 + C;
-
-				if (d < 0) d *= -1.0f;
-
-				d = d / sqrtf(A*A + B*B);
-
-				//std::cout << "d: " << d << "\n";
-				uniaryWeights(iF, pi) = d;
-
-
-			}
-		}
-
-
-	/*		// using samplson error
-
-	//need to calculate uniary terms
-	for (int iF = 0; iF < nF; iF++) {
-		for (int iP = 0; iP < nGoodMatches; iP++) {
-					
-
-			Point3f point1 = Point3f(keypoints_1[good_matches[iP].queryIdx].pt.x, keypoints_1[good_matches[iP].queryIdx].pt.y, 1.0);
-			Point3f point2 = Point3f(keypoints_2[good_matches[iP].trainIdx].pt.x, keypoints_2[good_matches[iP].trainIdx].pt.y, 1.0);			
-
-			Mat pt1(point1);
-			Mat pt2(point2);
-			std::cout << "HERE\n";
-
-			std::cout << "p1: " << pt1 << "\n\n";
-			std::cout << "p2: " << pt2 << "\n\n";
-			std::cout << "F: " << Flist[iF] << "\n\n";
-
-			//uniaryWeights(iF, iP) = sampsonDistance(pt1, pt2, Flist[iF]);
-			std::cout << sampsonDistance(pt1, pt2, Flist[iF]) << "\n";
-
-		}
-	}
-	//neighbours
-
-	//run optimisation
-
-	
-
-	*/
-	#pragma endregion I now have nF potential fundamental matrices I need to optimise
-
-	#pragma region findNeighbours
-
-		// fill neighbours, and neighbourCost
-
+		/*
 		std::vector<Point2f> pointsForSearch; //Insert all 2D points to this vector
-
-		for (int i = 0; i < nGoodMatches; i++) {
-			pointsForSearch.push_back(keypoints_1[i].pt);
+		
+		//put all point into search list
+		for (int im = 0; im < nGoodMatches; im++) {
+			pointsForSearch.push_back(keypoints_1[good_matches[im].trainIdx].pt);
 		}
 
 		flann::KDTreeIndexParams indexParams;
 		flann::Index kdtree(Mat(pointsForSearch).reshape(1), indexParams);
 
 		float range = 5000.0;
+
+		theseMatches = good_matches[(int)(rand() % nGoodMatches)];
+		p1Ind = theseMatches.trainIdx;
+		
+		Point2f queryP1 = keypoints_1[p1Ind].pt;		
+
+		std::vector<float> query;
+		query.push_back(float(queryP1.x)); //Insert the 2D point we need to find neighbours to the query
+		query.push_back(float(queryP1.y)); //Insert the 2D point we need to find neighbours to the query
+		std::vector<int> indices;
+		std::vector<float> dists;
+		kdtree.radiusSearch(query, indices, dists, range, nPointsToUse);
+		
+		//now I should have indicies which correspond to the neighbours
+
+		for (int ind = 0; ind < indices.size(); ind++) {
+			p1[ind] = keypoints_1[good_matches[indices[ind]].trainIdx].pt;
+			p2[ind] = keypoints_2[good_matches[indices[ind]].queryIdx].pt;
+		}
+		*/
+
+		//Mat F = findFundamentalMat(p1, p2, 3.0, 0.99, CV_FM_8POINT); // CV_FM_8POINT  CV_FM_7POINT  CV_FM_RANSAC
+		//Mat F = Mat(3, 3, CV_64F);
+		Mat F = findFundamentalMat(p1, p2, CV_FM_RANSAC, 3, 0.99);
+		//Flist.push_back(F);
+		
+		bool success = true;
+
+		try{
+			F.at<double>(2, 1);			
+		}
+		catch (Exception e) {			
+			success = false;
+		}
+
+		if (success) {
+			iF++;			
+			Flist.push_back(F);
+		}
+		else {
+			countFails++;
+		}
+				
+		std::cout << iF << "\n";
+		
+		//can I draw the epipolar lines for each F
+
+		//or check F is correct using x2' F x1 = 0
+
+	}
+
+	//std::cout << "fail: " << countFails << "\n";
+	//std::cout << "F size: " << Flist.size() << "\n";
+
+	//system("PAUSE");
+	
+	#pragma endregion Now that I have my feature matches - I need to estimate my fundamental matrices
+	
+	#pragma region Model_fitting
+		
+	int nNeighbours = 10;
+
+	Eigen::MatrixXd uniaryWeights = Eigen::MatrixXd::Zero(nF, nGoodMatches);
+
+	Eigen::MatrixXd pointsGoodMatches1 = Eigen::MatrixXd::Zero(2, nGoodMatches);
+	Eigen::MatrixXd pointsGoodMatches2 = Eigen::MatrixXd::Zero(2, nGoodMatches);
+
+	Eigen::MatrixXd pointsMat1 = Eigen::MatrixXd::Zero(3, 1);
+	Eigen::MatrixXd pointsMat2trans = Eigen::MatrixXd::Zero(1, 3);
+	Eigen::MatrixXd Fmat = Eigen::MatrixXd::Zero(3, 3);				
 		
 
-		for (int i = 0; i < nGoodMatches; i++) {			
+	RNG rng(111);
+
+	for (int iF = 0; iF < nF; iF++) {
+
+		DMatch theseMatches;
+
+		//std::cout << iF << "\n";
+		//std::cout << Flist[iF] << "\n";
 			
-			pointsGoodMatches1(0, i) = keypoints_1[i].pt.x;
-			pointsGoodMatches1(1, i) = keypoints_1[i].pt.y;
 
-			std::vector<float> query;
-			query.push_back(float(keypoints_1[i].pt.x)); //Insert the 2D point we need to find neighbours to the query
-			query.push_back(float(keypoints_1[i].pt.y)); //Insert the 2D point we need to find neighbours to the query
-			std::vector<int> indices;
-			std::vector<float> dists;
-			kdtree.radiusSearch(query, indices, dists, range, nNeighbours);
+		//fill this 
+		for (int di = 0; di < 3; di++) {
+
+			Fmat(di, 0) = Flist[iF].at<double>(di, 0);
+			Fmat(di, 1) = Flist[iF].at<double>(di, 1);
+			Fmat(di, 2) = Flist[iF].at<double>(di, 2);
+
+			//Fmat(0, di) = Flist[iF].at<double>(di, 0);
+			//Fmat(1, di) = Flist[iF].at<double>(di, 1);
+			//Fmat(2, di) = Flist[iF].at<double>(di, 2);
+		}
 
 
-			//now I should have indicies which correspond to the neighbours
-			
-			for (int ind = 0; ind < indices.size(); ind++) {
-							
-				neighbours(ind, i) = indices[ind];		//!!!		!!!			!!!
-				neighbourCost(ind, i) = dists[ind];
+		//change from points to use to all matches when calculating the uniary terms
+		//for (pi = 0; pi < nPointsToUse; pi++) {
+		for (int pi = 0; pi < nGoodMatches; pi++) {
 
-			}
+			theseMatches = good_matches[pi];
+
+			int p1Ind = theseMatches.trainIdx;
+			int p2Ind = theseMatches.queryIdx;
+
+			pointsMat1(0, 0) = keypoints_1[p1Ind].pt.x;
+			pointsMat1(1, 0) = keypoints_1[p1Ind].pt.y;
+			pointsMat1(2, 0) = 1.0;
+
+			pointsMat2trans(0, 0) = keypoints_2[p2Ind].pt.x;
+			pointsMat2trans(0, 1) = keypoints_2[p2Ind].pt.y;
+			pointsMat2trans(0, 2) = 1.0;
+
+			Eigen::MatrixXd e1 = pointsMat2trans * Fmat;
+			Eigen::MatrixXd e2 = pointsMat1.transpose() * Fmat.transpose();
+
+			Eigen::MatrixXd result = pointsMat2trans * Fmat * pointsMat1;
+
+			float A = e1(0, 0);
+			float B = e1(0, 1);
+			float C = e1(0, 2);
+
+			float x1 = keypoints_1[p1Ind].pt.x;
+			float y1 = keypoints_1[p1Ind].pt.y;
+
+			float d = A*x1 + B * y1 + C;
+
+			if (d < 0) d *= -1.0f;
+
+			d = d / sqrtf(A*A + B*B);
+
+			//std::cout << "d: " << d << "\n";
+			Point3d point1 = Point3f(keypoints_1[good_matches[pi].trainIdx].pt.x, keypoints_1[good_matches[pi].trainIdx].pt.y, 1.0);
+			Point3d point2 = Point3f(keypoints_2[good_matches[pi].queryIdx].pt.x, keypoints_2[good_matches[pi].queryIdx].pt.y, 1.0);
+			Mat pt1(point1);
+			Mat pt2(point2);
+			//std::cout << Flist[0].type() << "\n";
+			//std::cout << sampsonDistance(pt1, pt2, Flist[iF]) << "\n";
+			//uniaryWeights(iF, pi) = d;
+			uniaryWeights(iF, pi) = sampsonDistance(pt1, pt2, Flist[iF]);
+			//system("PAUSE");
 
 		}
+	}
+
+	//neighbours
+
+	//run optimisation
+
+	
+	#pragma endregion I now have nF potential fundamental matrices I need to optimise
+
+	#pragma region findNeighbours
+
+	// fill neighbours, and neighbourCost
+
+	nNeighbours = 5;
+	Eigen::MatrixXd neighbours = Eigen::MatrixXd::Zero(nNeighbours, nGoodMatches);
+	Eigen::MatrixXd neighbourCost = Eigen::MatrixXd::Zero(nNeighbours, nGoodMatches);
+
+	std::vector<Point2f> pointsForSearch; //Insert all 2D points to this vector
+
+	for (int i = 0; i < nGoodMatches; i++) {
+		pointsForSearch.push_back(keypoints_1[good_matches[i].trainIdx].pt);
+	}
+
+	flann::KDTreeIndexParams indexParams(20);
+	flann::Index kdtree(Mat(pointsForSearch).reshape(1), indexParams);	
+
+	float range = 5000.0;
+		
+
+	for (int i = 0; i < nGoodMatches; i++) {			
+			
+		pointsGoodMatches1(0, i) = keypoints_1[good_matches[i].trainIdx].pt.x;
+		pointsGoodMatches1(1, i) = keypoints_1[good_matches[i].trainIdx].pt.y;
+
+		pointsGoodMatches2(0, i) = keypoints_2[good_matches[i].queryIdx].pt.x;
+		pointsGoodMatches2(1, i) = keypoints_2[good_matches[i].queryIdx].pt.y;
+
+		std::vector<float> query;
+		query.push_back((keypoints_1[good_matches[i].trainIdx].pt.x)); //Insert the 2D point we need to find neighbours to the query
+		query.push_back((keypoints_1[good_matches[i].trainIdx].pt.y)); //Insert the 2D point we need to find neighbours to the query
+		std::vector<int> indices;
+		std::vector<float> dists;
+
+		
+
+		//kdtree.radiusSearch(query, indices, dists, range, nNeighbours);
+		kdtree.knnSearch(query, indices, dists, nNeighbours, flann::SearchParams(64));
+
+
+		//now I should have indicies which correspond to the neighbours
+			
+		for (int ind = 0; ind < indices.size(); ind++) {			
+			neighbours(ind, i) = indices[ind];		//!!!		!!!			!!!
+			neighbourCost(ind, i) = dists[ind];
+			std::cout << "i: " << indices[ind] << " d: " << dists[ind] << "\n";
+
+			
+
+		}
+
+	}
 	#pragma endregion I have filled my weight matrix - now find the neighbours
 
 	#pragma region SaveWeights
 
-		std::string modelWeightsFileName = "FWeights2";
+	std::string modelWeightsFileName = "FWeights";
 
-		std::ofstream fileFW;
-		fileFW.open(modelWeightsFileName);
-		fileFW << uniaryWeights;		
-		fileFW.close();
+	std::ofstream fileFW;
+	fileFW.open(modelWeightsFileName);
+	fileFW << uniaryWeights;		
+	fileFW.close();
 
-		std::string neighbourFileName = "neighbours2";
+	std::string neighbourFileName = "neighbours";
 
-		std::ofstream fileNeighbours;
-		fileNeighbours.open(neighbourFileName);
-		fileNeighbours << neighbours;
-		fileNeighbours.close();
+	std::ofstream fileNeighbours;
+	fileNeighbours.open(neighbourFileName);
+	fileNeighbours << neighbours;
+	fileNeighbours.close();
 
-		std::string neighbourCostFileName = "neighbourCost2";
+	std::string neighbourCostFileName = "neighbourCost";
 
-		std::ofstream fileNeighbourCost;
-		fileNeighbourCost.open(neighbourCostFileName);
-		fileNeighbourCost << neighbourCost;
-		fileNeighbourCost.close();
+	std::ofstream fileNeighbourCost;
+	fileNeighbourCost.open(neighbourCostFileName);
+	fileNeighbourCost << neighbourCost;
+	fileNeighbourCost.close();
 
-		//I should also save my point loacations so I can plot the final segmentation
+	//I should also save my point loacations so I can plot the final segmentation
 
-		std::string pointsFileName = "points2";
+	std::string pointsFileName = "points1";
 
-		std::ofstream filePoints;
-		filePoints.open(pointsFileName);
-		filePoints << pointsGoodMatches1;
-		filePoints.close();
+	std::ofstream filePoints;
+	filePoints.open(pointsFileName);
+	filePoints << pointsGoodMatches1;
+	filePoints.close();
 
 	#pragma endregion Save the weights to a file
 
@@ -443,4 +488,5 @@ int main() {
 
 	return 0;
 }
+
 
